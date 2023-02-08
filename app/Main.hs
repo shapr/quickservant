@@ -25,6 +25,7 @@ import Data.ByteString (ByteString)
 import Data.List
 import Data.Maybe
 import Data.String.Conversions
+import Data.Text hiding (intercalate)
 import Data.Time.Calendar
 import GHC.Generics
 import Lucid
@@ -38,36 +39,83 @@ import Text.Blaze
 import qualified Text.Blaze.Html
 import Text.Blaze.Html.Renderer.Utf8
 
-type UserAPI1 = "users" :> Get '[JSON] [User]
+type API =
+    "position" :> Capture "x" Int :> Capture "y" Int :> Get '[JSON] Position
+        :<|> "hello" :> QueryParam "name" String :> Get '[JSON] HelloMessage
+        :<|> "marketing" :> ReqBody '[JSON] ClientInfo :> Post '[JSON] Email
 
---     [ {"name": "Isaac Newton", "age": 372, "email": "isaac@newton.co.uk", "registration_date": "1683-03-01"}
--- , {"name": "Albert Einstein", "age": 136, "email": "ae@mc2.org", "registration_date": "1905-12-01"}
--- ]
-
-data User = User
-    { name :: String
-    , age :: Int
-    , email :: String
-    , registration_date :: Day
+data Position = Position
+    { xCoord :: Int
+    , yCoord :: Int
     }
-    deriving (Eq, Show, Generic)
+    deriving (Generic)
 
-instance ToJSON User
+instance ToJSON Position
 
-users1 :: [User]
-users1 =
-    [ User "Isaac Newton" 372 "isaac@newton.co.uk" (fromGregorian 1683 3 1)
-    , User "Albert Einstein" 136 "ae@mc2.org" (fromGregorian 1905 12 1)
-    ]
+newtype HelloMessage = HelloMessage {msg :: String}
+    deriving (Generic)
 
-server1 :: Server UserAPI1
-server1 = return users1
+instance ToJSON HelloMessage
 
-userAPI :: Proxy UserAPI1
+data ClientInfo = ClientInfo
+    { clientName :: String
+    , clientEmail :: String
+    , clientAge :: Int
+    , clientInterestedIn :: [String]
+    }
+    deriving (Generic)
+
+instance FromJSON ClientInfo
+instance ToJSON ClientInfo
+
+data Email = Email
+    { from :: String
+    , to :: String
+    , subject :: String
+    , body :: String
+    }
+    deriving (Generic)
+
+instance ToJSON Email
+
+emailForClient :: ClientInfo -> Email
+emailForClient c = Email from' to' subject' body'
+  where
+    from' = "great@company.com"
+    to' = clientEmail c
+    subject' = "Hey " ++ clientName c ++ ", we miss you!"
+    body' =
+        "Hi "
+            ++ clientName c
+            ++ ",\n\n"
+            ++ "Since you've recently turned "
+            ++ show (clientAge c)
+            ++ ", have you checked out our latest "
+            ++ intercalate ", " (clientInterestedIn c)
+            ++ " products? Give us a visit!"
+
+server3 :: Server API
+server3 =
+    position
+        :<|> hello
+        :<|> marketing
+  where
+    position :: Int -> Int -> Handler Position
+    position x y = pure (Position x y)
+
+    hello :: Maybe String -> Handler HelloMessage
+    hello mname = return . HelloMessage $ case mname of
+        Nothing -> "Hello, anonymous coward"
+        Just n -> "Hello, " ++ n
+
+    marketing :: ClientInfo -> Handler Email
+    marketing clientinfo = return (emailForClient clientinfo)
+
+userAPI :: Proxy API
 userAPI = Proxy
 
 app1 :: Application
-app1 = serve userAPI server1
+app1 = serve userAPI server3
 
 main :: IO ()
 main = run 8081 app1
